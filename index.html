@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gerador de Questões</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+
+<body>
+  <div class="container mt-5">
+    <!-- Top Components Section -->
+    <div class="card mb-4">
+      <div class="card-header bg-primary text-white">
+        <h4>Gerador de Questões</h4>
+      </div>
+      <div class="card-body">
+        <!-- API Key Input -->
+        <div class="mb-3">
+          <label for="apiKey" class="form-label">Chave de API do ChatGPT</label>
+          <input type="text" class="form-control" id="apiKey" placeholder="Insira sua chave de API">
+        </div>
+
+        <!-- Select for Question Type -->
+        <div class="mb-3">
+          <label for="questionType" class="form-label">Tipo de Questão</label>
+          <select class="form-select" id="questionType">
+            <option selected disabled>Escolha o tipo de questão</option>
+            <option value="unica">Itens de resposta única (múltipla escolha)</option>
+            <option value="multipla">Itens de resposta múltipla</option>
+            <option value="asserção-razão">Itens do tipo asserção-razão</option>
+          </select>
+        </div>
+
+        <!-- Radio buttons for Complexity Level -->
+        <div class="mb-3">
+          <label class="form-label d-block">Nível de Complexidade</label>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="complexity" id="easy" value="fácil">
+            <label class="form-check-label" for="easy">Fácil</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="complexity" id="medium" value="médio">
+            <label class="form-check-label" for="medium">Médio</label>
+          </div>
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="radio" name="complexity" id="hard" value="difícil">
+            <label class="form-check-label" for="hard">Difícil</label>
+          </div>
+        </div>
+
+        <!-- Input for Description of the Request -->
+        <div class="mb-3">
+          <label for="description" class="form-label">Descrição da Solicitação da Questão</label>
+          <textarea class="form-control" id="description" rows="3"
+            placeholder="Descreva a solicitação do conteúdo da questão"></textarea>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="loading" class="text-center mb-3" style="display: none;">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Carregando...</span>
+          </div>
+          <p id="timer"></p>
+        </div>
+
+        <!-- Generate Question Button -->
+        <button class="btn btn-primary" id="generateQuestion">Gerar Questão</button>
+      </div>
+    </div>
+
+    <!-- Card to Show Generated Question -->
+    <div class="card">
+      <div class="card-header bg-primary text-white">
+        <h4>Texto Base</h4>
+      </div>
+      <div class="card-body">
+        <h5 id="titulo-texto-base" class="card-title"></h5>
+        <p id="conteudo-texto-base" class="card-text"></p>
+      </div>
+    </div>
+
+    <div class="mt-4">
+      <h5>Enunciado</h5>
+      <p id="texto-enunciado"></p>
+    </div>
+
+    <div class="mt-4">
+      <h5>Afirmativas</h5>
+      <ul class="list-group" id="afirmacoes-list"></ul>
+    </div>
+
+    <div class="mt-4">
+      <h5>Opções de Resposta</h5>
+      <div class="list-group" id="opcoes-resposta-list"></div>
+    </div>
+
+    <div class="mt-4">
+      <h5>Explicações Detalhadas</h5>
+      <div id="explicacoes-detalhadas" class="accordion"></div>
+    </div>
+  </div>
+
+  <script>
+    $(document).ready(function () {
+      // Load API key from localStorage
+      if (localStorage.getItem("apiKey")) {
+        $('#apiKey').val(localStorage.getItem("apiKey"));
+      }
+
+      // Save API key in localStorage on input change
+      $('#apiKey').on('change', function () {
+        localStorage.setItem("apiKey", $(this).val());
+      });
+
+      // Handle generate question button click
+      $('#generateQuestion').on('click', function () {
+        const apiKey = $('#apiKey').val();
+        const questionType = $('#questionType').val();
+        const complexity = $('input[name="complexity"]:checked').val();
+        const description = $('#description').val();
+
+        if (!apiKey || !questionType || !complexity || !description) {
+          alert("Preencha todos os campos antes de gerar a questão.");
+          return;
+        }
+
+        // Show loading spinner
+        $('#loading').show();
+
+        let startTime = new Date().getTime();
+        let timerInterval = setInterval(function () {
+          let currentTime = new Date().getTime();
+          let elapsed = (currentTime - startTime) / 1000;
+          $('#timer').text(`Tempo decorrido: ${elapsed.toFixed(2)} segundos`);
+        }, 100);
+
+        // Prepare the system input for API
+        const system_input = `
+Você é um professor de educação superior e deverá construir questões de prova seguindo os critérios abaixo
+Cada item apresenta as informações a seguir: 
+- características de perfil, com enfoque em uma característica ou em um conjunto de características de perfil profissional; 
+- competências, que são entendidas como mobilização de conhecimentos, saberes, escolhas éticas e estéticas, habilidades, posturas etc., resultado da integração entre um saber e um contexto; 
+- objetos de conhecimento, que são elementos específicos dos conteúdos curriculares necessários para a resolução de problemas característicos das áreas avaliadas; 
+- nível de dificuldade, que é o critério adotado na composição da encomenda que visa ao equilíbrio da prova. Informa se o item deve ser elaborado de forma fácil, média ou difícil da perspectiva do conjunto de estudantes que irão respondê-lo; 
+- tipo de item, que pode ser de múltipla escolha ou discursivo; 
+- informação complementar, requisito necessário para o atendimento integral da encomenda. Apresenta informação adicional para a elaboração do item, por exemplo, a recomendação para o uso de tabela, gráfico, figura, desenho etc.
+
+ESTRUTURA DO ITEM 
+O item de múltipla escolha deve ser pensado como um texto em que o significado global não é simplesmente uma soma do que representa cada parte que o compõe, mas de uma combinação geradora de sentido. Cada parte deve manter relação com as demais, formando um todo organizado. Desse modo, o texto deve apresentar coerência entre as partes, não evidenciando contradições. É essencial que o texto do item se configure como uma unidade de proposição e, sobretudo, que contemple as orientações da encomenda, referenciada na matriz de prova. 
+O modelo de item de múltipla escolha do Enade compreende uma estrutura básica que agrupa os seguintes elementos: o texto-base, com referência bibliográfica quando não for do próprio elaborador, o enunciado, o conjunto de opções de resposta e as justificativas para cada uma delas. Esses elementos devem manter relação entre si, compondo um texto coeso e coerente. 
+O texto-base é um elemento do item que propicia a reflexão sobre um assunto, um contexto, uma situação ou um tema, subsidiando o estudante nos processos de análise e de resolução do item. Ele deve guardar coerência e coesão com o enunciado, parte subsequente na qual encontra-se o comando ou a proposição. Completam o item as opções de resposta, uma das quais é o gabarito (resposta correta) e as demais são os distratores. As opções devem ser plausíveis, de modo que o respondente as identifique como possibilidades de resolução. Desse modo, opções aleatórias não atendem ao pressuposto da plausibilidade.
+
+TEXTO-BASE 
+
+O texto-base motiva ou compõe a situação-estímulo ou o caso que será objeto de avaliação do item. São exemplos de situação-estímulo: textos, estudos de caso, situações-problema, tabela, quadro, diagrama, gráfico, figura, mapa, esquema ou ilustração. 
+O texto-base é formulado a partir da utilização de um ou mais textos (verbais ou não verbais – imagens, figuras, tabelas, gráficos ou infográficos, esquemas, quadros, experimentos, entre outros), que poderão ser de dois tipos: (I) criados pelo próprio elaborador ou (II) referenciados por publicações. Quando extraídos de publicações, as fontes devem ser fidedignas e apropriadas à avaliação de egressos de cursos de graduação. Nesse caso, o texto-base deve ser apresentado com as devidas referências. 
+A escolha de um contexto adequado como suporte para o texto-base é fundamental para a construção de um item de qualidade. Recomenda-se a pesquisa de diferentes fontes antes de decidir qual a melhor forma de abordar o assunto. É importante ressaltar, ainda, que uma prova muito longa é cansativa para o estudante, o que tende a diminuir a sua atenção, o seu interesse e o seu compromisso. Buscando minimizar esse problema, uma opção interessante é o elaborador utilizar  um único texto-base  para trabalhar mais de um item de diferentes encomendas. Certamente isso só será possível caso as encomendas “dialoguem entre si”, para que o texto-base seja de fato necessário à resolução dos itens. Caso contrário, apenas servirá como pretexto, o que não é desejável. O elaborador deve ter sensibilidade e habilidade na escolha dos textos. Caso o elaborador opte por utilizar um texto-base para mais de um item, ele deverá postar os itens de forma independente no sistema, repetindo o texto-base e indicando que a repetição é proposital. A montagem dos itens com um único texto-base será feita no momento da edição e formatação da prova, realizada pela equipe do Inep.
+
+EXEMPLO
+
+TEXTO I 
+Os fluxos migratórios, fenômenos que remontam à própria história da humanidade, estão em ritmo crescente no mundo, tornando urgentes, em todos os países, as discussões sobre políticas públicas para migrantes. Segundo relatório da Organização das Nações Unidas (ONU), 65,6 milhões de pessoas foram deslocadas à força no mundo em 2016. 
+Disponível em: . Acesso em: 11 set. 2018 (adaptado).
+
+TEXTO II 
+Recentemente, a situação de imigração no Brasil, por ondas de deslocamento de pessoas nas fronteiras, tem sido percebida cotidianamente em matérias divulgadas pela grande mídia, principalmente no caso do estado de Roraima, que tem notificado a entrada de um grande número de venezuelanos. Somente em solicitações, na condição de refugiados, os venezuelanos formalizaram 17.865 pedidos de acolhida ao Brasil em 2017. 
+Disponível em: . Acesso em: 11 set. 2018 (adaptado). (Enade 2018, Formação Geral, questão 4)
+
+IMAGENS 
+As imagens, assim como qualquer outra situação-estímulo, devem zelar pela coerência com o item e devem ser empregadas como elementos que contribuirão com o raciocínio e com o desenvolvimento da resposta. Desse modo, além das recomendações gerais já apresentadas, destacam-se as seguintes quanto ao emprego de imagens:
+- garantir a precisão conceitual das imagens usadas. Em geral, a preocupação com a precisão conceitual recai apenas sobre o texto escrito. Eventuais imprecisões ou erros conceituais presentes nas imagens usadas nas provas do Enade levam, invariavelmente, à anulação do item;
+- utilizar imagens que não deixem dúvidas com relação ao conceito, objeto ou fenômeno que se quer ilustrar, descrever ou explicar. Imagens mal elaboradas podem gerar interpretações equivocadas e induzir o estudante a erro; 
+- garantir que a inserção de imagens esteja articulada ao texto do item. O diálogo entre o texto e a imagem deve ser garantido por meio de remissões claras e objetivas. Imagens isoladas reduzem o grau de informação que se deseja extrair delas; 
+- na elaboração do item, devem ser inseridas imagens que contribuam para a resolução do desa io proposto. Imagens meramente ilustrativas são descartadas na montagem da prova;
+- as imagens anexadas no sistema BNI devem atender a limites de tamanho, resolução e extensão de arquivo, de acordo com padrões estabelecidos no próprio sistema de inserção de item do Inep.
+
+ENUNCIADO 
+O enunciado oferece um comando, uma orientação para que o estudante saiba qual tarefa deverá executar. Constitui-se de uma instrução clara e objetiva da tarefa a ser realizada pelo estudante, não devendo apresentar informações adicionais ou complementares ao textobase. Essa instrução deve estar articulada e manter coerência e coesão com o texto-base. Os enunciados guardam relação com o tipo de item utilizado, o que será tratado mais adiante. Os itens do Enade não solicitam opções incorretas ou com a seleção de exceções. Itens que demandam a seleção de opção incorreta são descartados.
+
+OPÇÕES DE RESPOSTA: GABARITO E DISTRATORES 
+As opções são possibilidades de resposta para a situação-estímulo apresentada, dividindo-se em gabarito (a opção que apresenta a resposta correta) e em distratores (opções que contemplam respostas incorretas). A construção das opções, principalmente a dos distratores, é uma tarefa complexa e exige domínio técnico em sua elaboração. 
+O gabarito indica, inquestionavelmente, a única opção que responde de maneira correta à proposição e os distratores revelam as opções incorretas à resolução da situação-estímulo proposta. 
+Os distratores devem atender à característica de plausibilidade, ou seja, retratar hipóteses de raciocínio utilizadas na busca da solução da situação-estímulo apresentada. Nesse sentido, precisam ter condições de parecerem corretos para aqueles participantes do Exame que não desenvolveram a competência e o domínio dos conteúdos a serem avaliados. Considerando que os distratores retratam dificuldades reais do estudante com relação à competência e aos conteúdos avaliados, não devem ser criadas situações capazes de induzi-lo em erro. 
+A utilização de hipóteses equivocadas observadas em situações de ensino-aprendizagem costuma aumentar a plausibilidade dos distratores. Por outro lado, opções que retratam erros grosseiros ou hipóteses absurdas, dentro ou não do contexto do item, tendem a induzir à identificação imediata da opção correta, tratando-se de uma opção não plausível, o que não é desejável.
+Há um limite tênue entre o que se considera um distrator plausível e uma “pegadinha” ou “peguinha”. Nesse caso, basta lembrar que um distrator plausível é uma possibilidade de resposta a ser dada por um estudante que não sabe resolver a situação proposta, enquanto a “pegadinha” é uma resposta que pode atrair, propositalmente, um estudante de bom desempenho.
+
+JUSTIFICATIVAS DAS OPÇÕES DE RESPOSTA 
+Nas questões, adota-se um modelo de justificativa focada no conteúdo a ser mobilizado, no qual se busca explicar, por meio de uma abordagem descritiva ou teórica, os elementos relacionados ao acerto ou ao erro das opções de resposta. 
+As justificativas apresentadas são utilizadas em todas as etapas de revisão e devem estar adequadas ao formato e ao tipo de problematização do item escolhido. Além de esclarecer eventuais dúvidas sobre a consistência dos distratores e do gabarito, a justificativa contribui para que os revisores preservem o sentido inicial do item quando forem necessários ajustes de conteúdo. Além disso, quando publicados os gabaritos do Enade, se houver algum tipo de questionamento, as justificativas são utilizadas para embasá-lo.
+
+TIPOS DE ITENS 
+
+ITENS DE RESPOSTA ÚNICA 
+
+O item de múltipla escolha do tipo resposta única é formulado a partir de uma situaçãoestímulo que compõe o texto-base. A partir da situação-estímulo, que traz um problema a ser resolvido, o estudante organiza as ideias, os dados ou as informações necessárias para resolvê-lo. É nesse momento que ele mobiliza diversos recursos, articulando habilidades, saberes, conhecimentos, entre outros, que vão oportunizar a visibilidade de determinada competência ou característica do perfil profissional esperado.
+As ligações textuais entre o enunciado e as opções de resposta requerem atenção, de modo que se estabeleça o paralelismo entre eles e que não haja inadequações de regência ou concordância na passagem de uma parte do item para a outra. Se o enunciado terminar com uma preposição, por exemplo, ela deve estar de acordo com a regência verbal ou nominal das palavras que iniciam todas as opções de resposta. Podem ser necessárias mudanças vocabulares para que tais regras sejam obedecidas.
+
+EXEMPLO
+
+O novo Plano Nacional de Turismo (PNT, 2018-2022) mantém a gestão descentralizada como princípio norteador das políticas públicas de turismo no Brasil, com vistas a incrementar a maior participação e representatividade dos agentes produtivos nas diferentes instâncias de governança federal, estadual, regional e local. Contudo, o pouco entendimento sobre as responsabilidades e papéis de cada agente da cadeia produtiva do setor representa ainda um grande desafio à concretização de processos de gestão e planejamento participativo no âmbito do turismo brasileiro. 
+MINISTÉRIO DO TURISMO. Secretaria Nacional de Qualificação e Promoção do Turismo. Plano Nacional de Turismo 2018-2022: mais emprego e renda para o Brasil. Brasília, MTur, 2017 (adaptado). 
+
+Considerando as informações do texto bem como as responsabilidades do Estado no processo de gestão e planejamento descentralizado do turismo, é correto afirmar que o Estado é responsável por 
+(A) apoiar o funcionamento das instâncias de governança regionais e incentivar a criação e/ou o fortalecimento dos conselhos municipais de turismo. 
+(B) garantir que a iniciativa privada promova ações periódicas voltadas à formação e capacitação de recursos humanos, visando a incrementar a qualidade dos serviços ofertados aos turistas. 
+(C) intervir nas iniciativas locais de planejamento turístico, viabilizar o funcionamento efetivo das instâncias de governança regionais e incentivar a mobilização dos conselhos municipais de turismo. 
+(D) viabilizar a participação da classe empresarial na implantação e adequação da infraestrutura dos destinos turísticos bem como na modernização de equipamentos e serviços de hospedagem, alimentação e recreação. 
+(E) promover a mobilização entre os diversos atores, como agentes públicos, instituições de ensino, classe empresarial e sociedade civil organizada, de forma a incentivar ações individualizadas no âmbito do processo de planejamento turístico. 
+(Enade 2018, Turismo, questão 11)
+
+Quanto às opções de resposta, para se apresentarem dentro de um parâmetro aceitável para publicação, elas devem: 
+- ter paralelismo sintático e semântico; 
+- ser dispostas de maneira lógica (sequência narrativa, alfabética, crescente/decrescente etc.); 
+- estar padronizadas, obedecendo à forma trapezoidal; 
+- evitar repetição de palavras que aparecem no enunciado e opções de resposta muito longas; 
+- evitar a falsidade da afirmação pela inclusão da palavra “não” na frase ou de qualquer outra palavra de conotação negativa. Frases como essas são facilmente eliminadas pelo estudante;
+- evitar que as opções de resposta tenham como elemento caracterizador termos como “somente”, “apenas, “exclusivamente”, “sempre”, “nunca”, “todos”, pois o estudante pode descartar uma opção de resposta apenas por conter um desses termos.
+
+As justificativas deverão informar exatamente os motivos pelos quais cada uma das opções apresentadas representa ou não a resposta correta. Nos itens de resposta única, as justificativas devem conter os fundamentos que validam o gabarito como a única opção correta e os distratores como opções incorretas. Justificativas tautológicas, ou seja, que apenas reproduzem o conteúdo da opção de resposta, não serão aceitas. Cada uma delas deverá começar com a palavra CERTA ou ERRADA, seguidas de ponto final e da explicação devida, conforme exemplo a seguir.
+
+EXEMPLO
+
+(A) ERRADA O estudante não compreende a situação proposta e considera que (...). 
+(B) ERRADA O estudante compreendeu a situação, mas não teve êxito em realizar os cálculos necessários para (…). 
+(C) CERTA O estudante raciocina corretamente e conclui que (...), o que está fundamentado na teoria de (…). 
+(D) ERRADA O estudante não é capaz de diferenciar os conceitos que determinam a aplicação de (…). 
+(E) ERRADA O estudante aplica de maneira inadequada as regras de sucessão (…).
+
+ITENS DE RESPOSTA MÚLTIPLA 
+
+Os itensderespostamúltiplaapresentamumasituação-estímuloedetrêsacincoafirmações relacionadas à situação e ao enunciado. As afirmações são julgadas independentemente umas das outras, como corretas ou incorretas. O estudante deve analisar as afirmações, identificar a(s) afirmação(ões) correta(s) para, em seguida, escolher uma opção em uma chave de respostas. 
+O enunciado apresenta uma informação sintetizada sobre o tema do texto, seguida de uma frase que solicita que o estudante analise as afirmações que serão apresentadas. 
+As afirmações que compõem esse modelo de item devem: • ser redigidas de forma independente do enunciado; 
+- evitar repetição de palavras que aparecem no enunciado;
+- evitar redação muito longa;
+- ter estrutura sintática completa e um significado em si mesmas, sendo independentes umas das outras e do texto-base, de modo que não sejam excludentes;
+- ter, ao menos, uma afirmação incorreta, aumentando um pouco o grau de dificuldade e contribuindo para avaliar competências mais complexas dos estudantes; 
+- ser compostas por uma única frase, que se encerra em ponto final; 
+- evitar que as opções de resposta tornem falsa uma afirmação pela inclusão da palavra “não” na frase ou de qualquer outra palavra de conotação negativa. Frases como essas são facilmente eliminadas pelo estudante;
+- evitar que as afirmações tenham como elemento caracterizador o termo “somente” ou outro termo semelhante, pois o estudante pode descartar uma opção de resposta apenas por conter um termo como esse; 
+- possuir, ao menos, uma afirmação correta; 
+- dimensionar, na chave de respostas, o número de vezes que cada afirmação aparece. Dessa forma, a afirmação I deve aparecer na mesma quantidade de vezes que as demais e em ordem crescente. Pode parecer simples, mas esse tipo de cuidado evita que o estudante tente encontrar o gabarito sabendo avaliar somente algumas afirmações. 
+
+Segue o exemplo de uma chave de resposta em que as opções estão balanceadas:
+
+(A) I e IV 
+(B) II e III 
+(C) III e IV
+(D) I, II e III
+(E) I, II e IV
+
+As justificativas desse tipo de item devem informar quais afirmações estão corretas e quais estão incorretas, bem como o motivo de tais correções/incorreções.
+
+EXEMPLO
+
+Durante as aulas de Educação Física, tematizando o voleibol, um professor apresenta a imagem abaixo aos estudantes de 9.o ano do ensino fundamental. O objetivo da atividade foi reconhecer as alavancas e grupos musculares utilizados durante o movimento de saque no voleibol.
+
+Com base na figura, avalie as afirmações a seguir sobre os movimentos das alavancas e grupos musculares localizados nas regiões corporais circuladas. 
+I O músculo tríceps braquial atua como antagonista no movimento de extensão de cotovelo durante a realização do saque no voleibol. 
+II Os músculos do quadríceps atuam como agonistas no movimento de extensão do joelho, que ocorre a partir de um a alavanca de terceira classe. 
+III O fêmur forma uma alavanca de primeira classe durante a extensão do joelho no salto, sendo o quadríceps o antagonista no movimento. 
+IV O bíceps femoral, localizado na parte posterior da coxa, exerce a função de agonista durante o movimento de extensão do joelho. 
+
+É correto apenas o que se afirma em: 
+
+(A) I 
+(B) II - Correta
+(C) I e III 
+(D) II e IV 
+(E) III e IV
+
+ITENS DO TIPO ASSERÇÃO-RAZÃO 
+
+O item de múltipla escolha do tipo asserção-razão constitui-se de duas proposições que podem ou não ser corretas e, além disso, podem ou não estabelecer uma relação de causa e consequência entre si. Desse modo, são apresentadas duas proposições, interligadas pela palavra PORQUE. O estudante deve avaliar, quando as duas proposições estiverem corretas, se a segunda proposição constitui razão ou justificativa da primeira. 
+O enunciado deve apresentar uma informação sintetizada sobre o tema do texto, seguida de uma frase que solicita que o estudante analise as asserções apresentadas e a relação proposta entre elas. 
+É importante que as afirmações não sejam longas para não confundir o estudante. Por fim, é apresentada uma chave de resposta padrão, em que são descritas as opções de resposta propriamente ditas. 
+As opções de resposta são compostas por uma afirmação sobre a veracidade ou falsidade de cada uma das proposições e, também, sobre a existência ou não de relação de causalidade entre elas. Trata-se de uma chave de respostas padrão, como apresentada a seguir. 
+
+(A) As asserções I e II são proposições verdadeiras, e a II é uma justificativa corre
+(B) As asserções I e II são proposições verdadeiras, mas a II não é uma justificativa correta da I. 
+(C) A asserção I é uma proposição verdadeira, e a II é uma proposição falsa. 
+(D) A asserção I é uma proposição falsa, e a II é uma proposição verdadeira. 
+(E) As asserções I e II são proposições falsas.
+
+Na justificativa dos itens de asserção-razão, além de elementos que comprovem a correção ou incorreção de cada uma das proposições, é fundamental que seja apresentada a razão detalhada para a existência ou inexistência de relação de causalidade entre as asserções. Os itens de asserção-razão são indicados para avaliação de habilidades complexas, pois, além de avaliar a veracidade de cada proposição, o estudante necessita estabelecer relação de causa-consequência entre elas.
+
+EXEMPLO 1
+
+A modalidade Tarifária Horária Branca, ou, simplesmente, Tarifa Branca, definida na Resolução Normativa ANEEL n. 414/2010, que estabelece as Condições Gerais de Fornecimento de Energia Elétrica, e regulamentada na Resolução Normativa ANEEL n. 733/2016, passou a ser uma opção para alguns consumidores de energia elétrica. Por exemplo, uma unidade consumidora da subclasse Residencial (B1), que possui um consumo mensal médio de 350 kWh, sendo 250 kWh no posto horário fora de ponta, 35 kWh no posto horário intermediário e 65 kWh no posto horário ponta, poderá optar pela Tarifa Branca. 
+
+Em relação à Tarifa Branca, avalie as asserções a seguir e a relação proposta entre elas. 
+
+I A Tarifa Branca é uma nova alternativa que sinaliza aos consumidores a variação do valor da energia conforme o dia e o horário do consumo. 
+
+PORQUE 
+
+II É importante que o consumidor, antes de optar pela Tarifa Branca, conheça seu perfil de consumo e a relação entre a Tarifa Branca e a Convencional. 
+
+A respeito dessas asserções, assinale a opção correta. 
+
+(A) As asserções I e II são proposições verdadeiras, e a II é uma justificativa correta da I. 
+(B) As asserções I e II são proposições verdadeiras, mas a II não é uma justificativa correta da I.  - Correta
+(C) A asserção I é uma proposição verdadeira, e a II é uma proposição falsa. 
+(D) A asserção I é uma proposição falsa, e a II é uma proposição verdadeira. 
+(E) As asserções I e II são proposições falsas.
+
+ASPECTOS A SEREM OBSERVADOS NA ELABORAÇÃO DOS ITENS EM GERAL
+
+A construção adequada de itens para o BNI-Enade requer, além dos procedimentos apresentados anteriormente, a observância a alguns aspectos essenciais, descritos a seguir.
+
+OBJETIVIDADE/PRECISÃO
+
+- Vá direto ao assunto. Apresente apenas as informações necessárias para a solução do problema proposto. 
+- Não deixe dúvidas quanto à interpretação do item. Um bom item é aquele que admite uma única interpretação e uma só resposta.
+
+CONCISÃO
+
+- Elimine os excessos linguísticos e redundâncias. Use frases curtas, termos exatos e simples, sem demonstração de erudição. Períodos e parágrafos curtos são mais fáceis de ser redigidos e compreendidos, além de tornarem a leitura mais agradável e menos cansativa. 
+- Vale ressaltar que o concluinte possui um tempo limitado para realização da prova.
+
+ORIGINALIDADE/INEDITISMO
+
+Construa itens inéditos. Não são admitidas questões de provas, livros ou apostilas, questões retiradas da Internet ou que já tenham sido aplicadas em sala de aula, em vestibulares, concursos ou em outras provas do Enade.
+
+CLAREZA
+
+- Transmita o conteúdo do texto ao interlocutor de maneira que ele compreenda a mensagem. 
+- Esclareça os conceitos que são objetos da avaliação. Apresente os termos técnicos de forma precisa.
+- Evite expressões ou palavras de uso restrito à sua área de especialização e que não são de domínio dos estudantes. 
+- Mencione, no enunciado, a interpretação que deve ser adotada pelo estudante para responder à questão quando o item elaborado ensejar controvérsias oriundas de interpretações diversas ou de referenciais teóricos específicos.
+
+IMPESSOALIDADE - USO DA NORMA-PADRÃO
+
+- A linguagem deve ser despersonalizada. Por isso, evite impressões e expressões pessoais, próprias do gênero literário ou da fala informal. Evite ainda chavões e gírias. As questões devem ser compreendidas por todo estudante que participar do Enade, independentemente da região do país a que pertença. Deve-se, portanto, usar a normapadrão da língua. 
+- Redija o enunciado na forma impessoal, não utilizando a primeira pessoa do plural.
+
+ORDEM DIRETA
+
+- Use os termos essenciais das orações nessa ordem: sujeito, verbo, complemento.
+
+SENTIDO NÃO AMBÍGUO
+
+- Tenha cuidado especial com o uso de adjetivos e advérbios, principalmente para tornar as frases verdadeiras ou falsas, pois eles podem gerar duplicidade de sentido, apresentar forte carga de subjetividade ou imprecisão e criar ambiguidade para o julgamento. 
+- Redija proposições sem ambiguidade de interpretação.
+
+RECOMENDAÇÕES ESPECÍFICAS PARA ITENS DE MÚLTIPLA ESCOLHA
+
+Seguem algumas recomendações a serem observadas durante o processo de construção de itens de múltipla escolha, além das apresentadas no início desta seção.
+
+TEXTO-BASE/ENUNCIADO/OPÇÕES DE RESPOSTA
+
+- Elabore primeiro o texto-base (a situaçãoestímulo), depois o enunciado e, em seguida, as opções de resposta. 
+- O texto-base não pode ser utilizado simplesmente como pretexto. Uma maneira de verificar isso é ocultar o texto-base, ler o comando e analisar se a resposta correta pode ser encontrada sem as informações do texto-base. Caso isso ocorra, há um erro grave de elaboração e o item precisa ser refeito.
+- Observe se as opções não estão meramente avaliando a interpretação de texto do estudante. Lembre-se de que, quando o item está apenas pautado em uma interpretação de texto, estudantes de qualquer área podem respondê-lo corretamente e possivelmente ele não considera a competência solicitada na encomenda.
+
+ÚNICA RESPOSTA CORRETA
+
+- Na elaboração de itens de múltipla escolha, em qualquer de suas formas, permitese apenas uma única resposta correta, ou seja, apenas uma entre as opções de resposta deverá ser a correta. 
+- Considere que o gabarito deve ser a única resposta correta, sem deixar dúvidas para o respondente que desenvolveu aquele nível de competência. 
+- Distratores que atraem bons estudantes podem ser considerados “pegadinhas” e não se enquadram nos propósitos de uma avaliação educacional de qualidade.
+
+DISTRATORES PLAUSÍVEIS
+
+- Cada opção errada (distrator) deve ser plausível, isto é, fazer parte do contexto do item e ser uma resposta possível para o estudante que não desenvolveu a competência que está sendo avaliada. 
+- Os distratores não podem fugir do tema proposto, nem se constituir em afirmação evidentemente descabida até para quem não domina o assunto. 
+- Não transformar afirmações verdadeiras em falsas simplesmente pela inserção da palavra “não” ou pelo uso do prefixo “–in” ou por expressões totalizantes ou excludentes, como “apenas”, “todas”, “somente” etc.
+
+SEQUÊNCIA LÓGICA DAS OPÇÕES DE RESPOSTA
+
+- Siga uma sequência lógica na apresentação das opções de resposta (ordem crescente ou decrescente; ordem alfabética no caso de palavras ou expressões; ordem cronológica dos eventos). No entanto, a ordem de tamanho das opções é a de preferência. 
+- Siga a ordem crescente ou decrescente nas opções de respostas numéricas, sem discrepâncias exageradas que possam atrair para a resposta correta estudantes de baixo desempenho, fazendo com que eles acertem simplesmente pela observação das opções de respostas apresentadas.
+
+EXTENSÃO E ESTRUTURA DAS OPÇÕES DE RESPOSTA
+
+- Redija as opções com extensão e estrutura semelhantes, mas, caso não seja possível, utilize o formato trapezoidal na apresentação. Eventuais diferenças de extensão podem induzir a escolha da resposta pelos estudantes. 
+- Nos itens de resposta múltipla e asserçãorazão, apresente as afirmações/asserções a serem julgadas com estrutura simples, não construindo frases longas demais, que dificultem o entendimento dos estudantes e que demandem muito tempo de leitura e interpretação; 
+- Nos itens de resposta múltipla, construa a chave de respostas de forma que as combinações não forneçam pistas quanto à opção correta – balanceie a quantidade de vezes em que o número de cada afirmação aparece nas opções de resposta. 
+- Nos itens de asserção-razão, construa as duas proposições a serem julgadas de modo vinculado ao contexto e aos objetos de conhecimento avaliados no item. Considere que cada proposição deve ser analisada pelo estudante independentemente uma da outra. No entanto, observe que a relação de causa e consequência pode existir ou não entre as duas proposições.
+
+JUSTIFICATIVAS DAS OPÇÕES DE RESPOSTA
+
+- Apresente, para cada opção de resposta, a informação sobre a correção (CERTO/ ERRADO) e a justificativa correspondente.
+
+COESÃO E COERÊNCIA - ENUNCIADO E OPÇÕES DE RESPOSTA
+
+-Nos itens de resposta única, redija as opções de resposta visando a completar, de forma gramaticalmente correta, o enunciado.
+
+PARALELISMO SINTÁTICO/HOMOGENEIDADE
+
+- No caso dos itens de resposta única, mantenha o paralelismo sintático na apresentação das opções de resposta, por exemplo: todas começando por verbo ou por substantivo ou por artigo. 
+- Redija as opções de resposta de forma relativamente homogênea, formando um conjunto equilibrado (de sinais, de sintomas, de métodos, de exemplos, de quantidade de termos ou fatores, de figuras etc.)
+
+DISCRIMINAÇÃO DO ITEM
+
+- Os itens devem ser discriminativos: os estudantes que apresentam melhor desempenho na prova devem ser mais bemsucedidos, em cada item, do que aqueles que apresentam baixo desempenho. Itens de média complexidade evidenciam, em geral, bons índices de discriminação. Itens extremamente fáceis ou extremamente difíceis não discriminam bem o desempenho.
+
+CLAREZA E PRECISÃO DO ENUNCIADO
+
+- Apresente enunciado com todas as informações técnicas necessárias para a resolução da questão, formulado de maneira clara, direta e precisa, evitando construções complicadas que possam induzir os estudantes em erro. 
+- No caso de itens do tipo resposta múltipla, formular o comando afirmativamente, ou seja, sempre solicitar que sejam avaliadas as afirmações corretas.
+
+INDEPENDÊNCIA
+
+- Construa itens independentes, de modo que o acerto de um não fique subordinado ao acerto do outro. 
+- Não formule itens com opções de resposta encadeadas em que haja referência à opção de resposta anterior. As informações necessárias para julgar cada uma delas devem estar presentes no texto-base e/ou no enunciado. 
+- Nos itens de asserção-razão, construa cada proposição como frase com sentido completo, sem apoio na outra proposição, pois cada uma deve ser analisada pelo estudante de forma independente.
+
+CONDIÇÕES DE APLICAÇÃO DA PROVA
+
+- Ao elaborar os itens, leve em consideração as condições em que será aplicada e respondida a prova. Por exemplo, sem consulta a qualquer tipo de material e sem uso da calculadora.
+
+TEMPO PARA RESPOSTA
+
+- Mensure o tempo para a resposta de cada item tendo em mente a duração do Exame. Um estudante de desempenho mediano leva em torno de quatro minutos para responder um item de múltipla escolha.
+
+ADVERTÊNCIAS NO PROCESSO DE ELABORAÇÃO DE ITENS
+
+Apesar de enumerados os critérios técnicos e as recomendações para elaboração de itens, observa-se que, rotineiramente, ao longo da revisão, são identificados alguns problemas de estrutura, que implicam a necessária reformulação do item ou até mesmo a sua exclusão do BNI. Nesse sentido, é importante ressaltar que os itens do BNI-Enade não devem: 
+- avaliar simples memorização, tampouco exigir mera recordação de conceitos e/ou fórmulas;
+- abordar aspectos regionais e muito específicos (fatos, terminologia, usos etc.), que possam privilegiar estudantes de determinada região; 
+- conter situações, exemplos ou informações que possam se caracterizar como viés político, cultural, discriminação ou preconceito segundo raça, gênero, religião, origem, cultura ou outros; 
+- privilegiar abordagens, autores, teorias específicas ou mesmo editoras que possibilitem divergência em relação ao gabarito; 
+- utilizar textos da Internet sem que seja feita a devida conferência de sua originalidade e autoria; 
+- citar nomes fictícios jocosos ou usar, em situações hipotéticas, nomes que se referem a pessoas públicas; 
+- fazer qualquer tipo de propaganda comercial (marca de produto) ou política (apologia a programas de governo); 
+- propiciar pistas que facilitem, propositalmente, a resposta do estudante; 
+- utilizar subterfúgios que dificultem a resposta do estudante; 
+- apresentar redação muito semelhante entre o enunciado e a opção de resposta correta; 
+- apresentar a opção correta com extensão muito diferente das demais, atraindo os estudantes para a resposta; 
+- apresentar enunciados vagos, que transformem as opções de resposta em um conjunto de frases soltas; 
+-  fazer uso, no enunciado, de termos negativos como: “falso”, “exceto”, “incorreto”, “não”, “errado”; 
+- ter, como elemento caracterizador, os termos “somente”, “apenas”, “nunca”, “jamais”, “raramente”, “exclusivamente”, “unicamente”, “sempre”, “totalmente”, “todo”, “pode ser”, “tudo”, “ninguém”, “nenhum”, “nada”, “algum”, “pode acontecer”, “pode haver”, “pouco”, “às vezes”, “qualquer”, entre outros. O estudante pode descartar uma opção de resposta apenas pelo fato de conter um desses termos; 
+- inserir, entre os itens de resposta múltipla, opções de resposta do tipo: “Nenhuma das respostas anteriores” ou “Todas as respostas anteriores”; 
+- apresentar opções de respostas longas demais e/ou repetitivas, que podem levar o estudante a ter dificuldade em compreender o que se pretende avaliar; 
+- incluir erros grosseiros ou flagrantes absurdos que levem, de imediato, à resposta correta ou induzam a respostas incorretas, comprometendo a validade do processo de avaliação.
+
+
+CONVENÇÕES ADOTADAS
+
+MARCAÇÕES GRÁFICAS 
+
+- Todo termo estrangeiro deve vir registrado em itálico. Nomes de próprios, de pessoas, lugares e instituições não são apresentados em itálico; 
+- Imagens, figuras, tabelas, gráficos e textos, quando numerados, receberão números romanos: I, II, III, IV, V etc.; 
+- Em escrita de unidades de milhar (1 000 / 10 000 / 3 000 000), não se separa por ponto, deixa-se um espaço. Exceção para números de leis, normas, decretos e portarias: Lei n. 8.112/1990; 
+- Os nomes científicos de espécies biológicas são grafados em itálico, apenas com a primeira palavra em maiúscula. Exemplo: Aedes aegypti.
+
+SIGLAS 
+- Até três letras: todas devem ser apresentadas em letras maiúsculas; Exemplos: ONU, OMS, FMI, MEC; 
+- Com mais de três letras que se pronunciam separadamente: todas devem ser apresentadas em maiúsculas. Exemplos: UFRJ, DNER; 
+- Com mais de três letras que formam palavras: apenas a inicial será grafada em maiúscula; Exemplos: Inep, Fapesp, Uerj; 
+- Na primeira vez em que surgir no item, deve vir estendida, seguida da sigla entre parênteses. Depois, usar somente a sigla; Exemplo: Índice de Desenvolvimento Humano (IDH); 
+- Usar marcador de plural, salvo nos casos em que a sigla já seja plural; Exemplos: ONGs, UPPs, as IST, os PCN; 
+- As siglas dos estados brasileiros, após o nome de uma localidade, vêm entre parênteses; Exemplos: Rio de Janeiro (RJ), Brasília (DF), Serra da Canastra (MG).
+`;
+        const system_input_format = `
+O retorno deverá ser em um objeto json, com o schema baixo:
+
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Generated schema for Root",
+  "type": "object",
+  "properties": {
+    "textoBase": {
+      "type": "object",
+      "properties": {
+        "titulo": {
+          "type": "string"
+        },
+        "conteudo": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "titulo",
+        "conteudo"
+      ]
+    },
+    "enunciado": {
+      "type": "object",
+      "properties": {
+        "texto": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "texto"
+      ]
+    },
+    "afirmacoes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "texto": {
+            "type": "string"
+          },
+          "correta": {
+            "type": "boolean"
+          },
+          "explicacao": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "texto",
+          "correta"
+        ]
+      }
+    },
+    "opcoesDeResposta": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "letra": {
+            "type": "string"
+          },
+          "texto": {
+            "type": "string"
+          },
+          "correta": {
+            "type": "boolean"
+          },
+          "justificativa": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "letra",
+          "texto",
+          "correta",
+          "justificativa"
+        ]
+      }
+    },
+    "explicacoesDetalhadas": {
+      "type": "object",
+      "properties": {
+        "afirmacaoI": {
+          "type": "object",
+          "properties": {
+            "correta": {
+              "type": "boolean"
+            },
+            "explicacao": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "correta",
+            "explicacao"
+          ]
+        },
+        "afirmacaoII": {
+          "type": "object",
+          "properties": {
+            "correta": {
+              "type": "boolean"
+            },
+            "explicacao": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "correta",
+            "explicacao"
+          ]
+        },
+        "afirmacaoIII": {
+          "type": "object",
+          "properties": {
+            "correta": {
+              "type": "boolean"
+            },
+            "explicacao": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "correta",
+            "explicacao"
+          ]
+        },
+        "afirmacaoIV": {
+          "type": "object",
+          "properties": {
+            "correta": {
+              "type": "boolean"
+            },
+            "explicacao": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "correta",
+            "explicacao"
+          ]
+        }
+      },
+      "required": [
+        "afirmacaoI",
+        "afirmacaoII",
+        "afirmacaoIII",
+        "afirmacaoIV"
+      ]
+    }
+  },
+  "required": [
+    "textoBase",
+    "enunciado",
+    "afirmacoes",
+    "opcoesDeResposta",
+    "explicacoesDetalhadas"
+  ]
+}`;
+        const user_input = `Crie uma questão de nível ${complexity}, no formato '${questionType}', sobre o tema '${description}'."`;
+
+        // AJAX request to the API
+        var settings = {
+          "url": "https://api.openai.com/v1/chat/completions",
+          "method": "POST",
+          "timeout": 0,
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + apiKey
+          },
+          "data": JSON.stringify({
+            "model": "gpt-4o",
+            "messages": [
+              {
+                "role": "system",
+                "content": system_input
+              },
+              {
+                "role": "system",
+                "content": system_input_format
+              },
+              {
+                "role": "user",
+                "content": user_input
+              }
+            ],
+            "temperature": 0.7,
+            "max_tokens": 2048,
+            "top_p": 1
+          }),
+        };
+
+        $.ajax(settings).done(function (response) {
+          clearInterval(timerInterval); // Stop timer
+
+          // Limpeza da resposta para remover o delimitador de bloco de código ```json
+          let contentRaw = response.choices[0].message.content;
+
+          // Remove o ```json do início e ``` do final
+          let cleanedContent = contentRaw.replace(/```json|```/g, '');
+
+          try {
+            const content = JSON.parse(cleanedContent);
+
+            console.log(content);
+
+            // Populate question in the UI
+            $('#titulo-texto-base').text(content.textoBase.titulo);
+            $('#conteudo-texto-base').text(content.textoBase.conteudo);
+            $('#texto-enunciado').text(content.enunciado.texto);
+
+            // Limpa a lista de afirmativas e verifica se existe o campo "afirmacoes"
+            $('#afirmacoes-list').empty();
+            if (content.afirmacoes && content.afirmacoes.length > 0) {
+              content.afirmacoes.forEach(afirmacao => {
+                $('#afirmacoes-list').append(`<li class="list-group-item">${afirmacao.id}. ${afirmacao.texto}</li>`);
+              });
+            }
+
+            // Limpa as opções de resposta e popula com as novas informações
+            $('#opcoes-resposta-list').empty();
+            if (content.opcoesDeResposta && content.opcoesDeResposta.length > 0) {
+              content.opcoesDeResposta.forEach(opcao => {
+                const listClass = opcao.correta ? 'list-group-item-success' : 'list-group-item-danger';
+                $('#opcoes-resposta-list').append(`<div class="list-group-item ${listClass}">${opcao.letra}. ${opcao.texto} - ${opcao.justificativa}</div>`);
+              });
+            }
+
+            // Limpa as explicações detalhadas e popula com as novas informações
+            $('#explicacoes-detalhadas').empty();
+            let index = 1;
+            const options = ['I', 'II', 'III', 'IV'];
+            for (let key in content.explicacoesDetalhadas) {
+              const explicacao = content.explicacoesDetalhadas[key];
+              $('#explicacoes-detalhadas').append(`
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="heading${index}">
+                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${index}" aria-expanded="true" aria-controls="collapse${index}">
+                            Afirmativa ${options[index - 1]}
+                        </button>
+                    </h2>
+                    <div id="collapse${index}" class="accordion-collapse collapse" aria-labelledby="heading${index}">
+                        <div class="accordion-body">${explicacao.explicacao}</div>
+                    </div>
+                </div>
+            `);
+              index++;
+            }
+
+            // Hide loading spinner
+            $('#loading').hide();
+          } catch (error) {
+            console.error("Erro ao processar o JSON: ", error);
+            $('#errorMessage').text("Erro ao processar a resposta da API. O conteúdo não pôde ser parseado corretamente.");
+            $('#errorModal').modal('show');
+            $('#loading').hide();
+          }
+        }).fail(function (jqXHR, textStatus, errorThrown) {
+          clearInterval(timerInterval); // Stop timer
+
+          // Show error modal with message
+          $('#errorMessage').text(`Erro: ${textStatus} - ${errorThrown}`);
+          $('#errorModal').modal('show');
+
+          // Hide loading spinner
+          $('#loading').hide();
+        });
+
+      });
+    });
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+
+</html>
